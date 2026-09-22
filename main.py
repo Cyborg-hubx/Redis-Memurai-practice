@@ -1,5 +1,6 @@
 import redis
-import time
+import json
+from fake_database import inventory
 
 client = redis.Redis(
     host="localhost",
@@ -7,12 +8,46 @@ client = redis.Redis(
     decode_responses=True,
 )
 
-client.set("fuck", "John", ex=15)
+def get_inventory(inventory_id: int):
 
-print("Immediately:", client.get("fuck"))
-print("TTL:", client.ttl("fuck"))
+    cache_key = f"inventory:{inventory_id}"
 
-time.sleep(16)
+    # 1. Check Redis
+    cached_inventory = client.get(cache_key)
 
-print("After 16 seconds:", client.get("fuck"))
-print("TTL:", client.ttl("fuck"))
+    if cached_inventory:
+        print("CACHE HIT")
+        return json.loads(cached_inventory)
+
+    print("CACHE MISS")
+
+    # 2. Get data from the database
+    item = inventory.get(inventory_id)
+
+    if item is None:
+        return None
+
+    # 3. Store database result in Redis
+    client.set(
+        cache_key,
+        json.dumps(item),
+        ex=30
+    )
+
+    # 4. Return database result
+    return item
+
+
+def stock_out(inventory_id: int, quantity: int):
+
+    item = inventory.get(inventory_id)
+
+    if item is None:
+        return None
+
+    if item["quantity"] < quantity:
+        return None
+
+    item["quantity"] -= quantity
+
+    return item
